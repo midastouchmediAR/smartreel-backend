@@ -20,6 +20,9 @@ import imageio
 from PIL import Image
 import numpy as np
 
+from runwayml import AsyncRunwayML
+import base64
+
 app = FastAPI()
 
 origins = [
@@ -81,70 +84,49 @@ async def generate_video(images: List[UploadFile] = File(...)):
     return StreamingResponse(video_bytes, media_type="video/mp4")
 
 
-# New AI video generation endpoint using RunwayML Gen-4 Turbo
 @app.post("/generate-ai")
 async def generate_ai_video(image: UploadFile = File(...)):
+    RUNWAY_API_KEY = os.getenv("RUNWAYML_API_SECRET")
     if not RUNWAY_API_KEY:
-        return {"error": "Runway API key not configured."}
+        return {"error": "Missing RunwayML API key."}
 
     contents = await image.read()
-    temp_image = NamedTemporaryFile(delete=False, suffix=".jpg")
-    temp_image.write(contents)
-    temp_image.close()
+    encoded_image = base64.b64encode(contents).decode("utf-8")
+    data_uri = f"data:image/jpeg;base64,{encoded_image}"
 
-    headers = {
-        "Authorization": f"Bearer {RUNWAY_API_KEY}",
-        "Content-Type": "application/json"
-    }
+    client = AsyncRunwayML(api_key=RUNWAY_API_KEY)
 
-    files = {
-        "image": open(temp_image.name, "rb")
-    }
-
-    json_payload = {
-        "prompt": "smooth cinematic movement",
-        "seed": 42,
-        "output_format": "mp4"
-    }
-
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            RUNWAY_API_URL,
-            headers=headers,
-            files={"input_image": files["image"]},
-            json=json_payload
+    try:
+        task = await client.image_to_video.create(
+            model="gen4_turbo",
+            prompt_image=data_uri,
+            prompt_text="Smooth cinematic motion",
+            ratio="1280:720",
+            duration=5
         )
+    except Exception as e:
+        return {"error": f"Failed to create Runway task: {str(e)}"}
 
-    os.remove(temp_image.name)
-
-    if response.status_code != 200:
-        return {"error": "Failed to send image to Runway."}
-
-    task = response.json()
-    task_id = task.get("id")
+    task_id = task.id
 
     # Poll for completion
-    result_url = None
     for _ in range(20):
-        await asyncio.sleep(3)
-        async with httpx.AsyncClient() as client:
-            poll = await client.get(f"{RUNWAY_API_URL}/{task_id}", headers=headers)
-        status = poll.json()
-        if status.get("status") == "succeeded":
-            result_url = status["output"].get("video")
+        await asyncio.sleep(10)
+        status = await client.tasks.retrieve(task_id)
+        if status.status == "SUCCEEDED":
+            video_url = status.output.video
             break
-        elif status.get("status") == "failed":
-            return {"error": "Video generation failed."}
+        elif status.status == "FAILED":
+            return {"error": "RunwayML generation failed."}
+    else:
+        return {"error": "RunwayML generation timed out."}
 
-    if not result_url:
-        return {"error": "Timed out waiting for video."}
+    # Download the video file
+    async with httpx.AsyncClient() as http_client:
+        video_resp = await http_client.get(video_url)
 
-    # Download and return video
-    async with httpx.AsyncClient() as client:
-        video_resp = await client.get(result_url)
+    temp_file = NamedTemporaryFile(delete=False, suffix=".mp4")
+    temp_file.write(video_resp.content)
+    temp_file.close()
 
-    video_temp = NamedTemporaryFile(delete=False, suffix=".mp4")
-    video_temp.write(video_resp.content)
-    video_temp.close()
-
-    return FileResponse(video_temp.name, media_type="video/mp4", filename="ai_video.mp4")
+    return FileResponse(temp_file.name, media_type="video/mp4", filename="ai_video.mp4")
