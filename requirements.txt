@@ -5,3 +5,4 @@ python-dotenv
 gunicorn
 uvicorn[standard]
 python-multipart
+httpx
