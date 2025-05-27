@@ -5,3 +5,4 @@ moviepy
 python-dotenv
 gunicorn
 uvicorn[standard]
+python-multipart
