@@ -4,3 +4,4 @@ requests
 moviepy
 python-dotenv
 gunicorn
+uvicorn[standard]
