@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-RUNWAY_API_KEY = os.getenv("key_9ba1adaf008a8f412312660579987a902e4e5ff347a2f3b32d4acd28d739480b4633abdf88588c28acb66a762e8bc14b9f09c4fa0fdefa59a5cee0946252963e")
+RUNWAY_API_KEY = os.getenv("RUNWAYML_API_SECRET")
 RUNWAY_MODEL_ID = "runwayml/gen-4-turbo"
 RUNWAY_API_URL = f"https://api.runwayml.com/v1/inference/{RUNWAY_MODEL_ID}"
 from fastapi import FastAPI, UploadFile, File
@@ -86,7 +86,6 @@ async def generate_video(images: List[UploadFile] = File(...)):
 
 @app.post("/generate-ai")
 async def generate_ai_video(image: UploadFile = File(...)):
-    RUNWAY_API_KEY = os.getenv("RUNWAYML_API_SECRET")
     if not RUNWAY_API_KEY:
         return {"error": "Missing RunwayML API key."}
 
@@ -130,3 +129,6 @@ async def generate_ai_video(image: UploadFile = File(...)):
     temp_file.close()
 
     return FileResponse(temp_file.name, media_type="video/mp4", filename="ai_video.mp4")
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=10000)
